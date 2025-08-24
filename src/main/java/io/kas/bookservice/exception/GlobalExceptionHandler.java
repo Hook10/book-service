@@ -21,7 +21,7 @@ public class GlobalExceptionHandler {
   public ResponseEntity<Map<String, String>> handleException(WebExchangeBindException e) {
     final Map<String, String> errors = new HashMap<>();
     e.getFieldErrors().forEach(error -> errors.put(error.getField(), error.getDefaultMessage()));
-    log.error("WebExchangeBindException occured: {}", errors);
+    log.error("WebExchangeBindException occurred: {}", errors);
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errors);
   }
 
