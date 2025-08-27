@@ -6,6 +6,11 @@ spring:
       host: localhost
       port: 27017
       database: book_db
+  kafka:
+    bootstrap-servers: localhost:9092
+
 
 server:
   port: 8080
+
+
