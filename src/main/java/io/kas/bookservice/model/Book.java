@@ -1,11 +1,8 @@
 package io.kas.bookservice.model;
 
 import lombok.*;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.annotation.Version;
-import org.springframework.data.mongodb.core.mapping.Document;
-import org.springframework.data.mongodb.core.mapping.Field;
-import org.springframework.data.mongodb.core.mapping.FieldType;
+import org.bson.codecs.pojo.annotations.BsonId;
+import org.bson.codecs.pojo.annotations.BsonIgnore;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -15,9 +12,9 @@ import java.util.UUID;
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
-@Document(collection = "books")
+@Builder
 public class Book {
-  @Id
+  @BsonId
   private UUID id;
 
   private String title;
@@ -40,17 +37,12 @@ public class Book {
 
   private List<PromoInfo> promos;
 
-  @Field(targetType = FieldType.DECIMAL128)
   private BigDecimal price;
 
   private Integer discount;
 
   private Status status;
 
-  @Getter
-  @Setter(AccessLevel.NONE)
-  @Version
+  @BsonIgnore
   private Long version;
-
-
 }

@@ -12,7 +12,6 @@ import java.util.UUID;
 
 
 public record BookDto(
-    @NotNull(message = "Id is required")
     UUID id,
 
     @NotBlank(message = "Title is required")
