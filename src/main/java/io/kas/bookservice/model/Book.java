@@ -43,6 +43,5 @@ public class Book {
 
   private Status status;
 
-  @BsonIgnore
   private Long version;
 }
