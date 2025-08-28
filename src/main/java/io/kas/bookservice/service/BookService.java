@@ -12,7 +12,9 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.kafka.sender.KafkaSender;
 import reactor.kafka.sender.SenderRecord;
+import com.mongodb.reactivestreams.client.ClientSession;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -40,9 +42,13 @@ public class BookService {
           if (entity.getId() == null) {
             entity.setId(UUID.randomUUID());
           }
-          return bookDao.save(entity)
-              .then(sendBookEvent(entity, "BOOK_CREATED"))
-              .thenReturn(entity);
+          return executeInTransaction(session ->
+              bookDao.saveWithSession(entity, session)
+                  .flatMap(savedBook ->
+                      sendBookEventWithTransaction(savedBook, "BOOK_CREATED", session)
+                          .thenReturn(savedBook)
+                  )
+          );
         })
         .map(bookMapper::toDto);
   }
@@ -54,23 +60,75 @@ public class BookService {
             bookDtoMono.map(bookMapper::toEntity)
                 .doOnNext(e -> e.setId(id))
                 .flatMap(updated ->
-                    bookDao.update(id, existing.getVersion(), updated)
-                        .then(sendBookEvent(updated, "BOOK_UPDATED"))
-                        .thenReturn(updated)
+                    executeInTransaction(session ->
+                        bookDao.updateWithSession(id, existing.getVersion(), updated, session)
+                            .flatMap(updatedBook ->
+                                sendBookEventWithTransaction(updatedBook, "BOOK_UPDATED", session)
+                                    .thenReturn(updatedBook)
+                            )
+                    )
                 )
         )
         .map(bookMapper::toDto);
   }
 
-
   public Mono<Void> deleteBook(UUID id) {
     return bookDao.findById(id)
         .switchIfEmpty(Mono.error(new BookNotFoundException("Book not found with id: " + id)))
         .flatMap(existing ->
-            bookDao.delete(id)
-                .filter(Boolean::booleanValue)
-                .switchIfEmpty(Mono.error(new RuntimeException("Failed to delete book " + id)))
-                .then(sendBookEvent(existing, "BOOK_DELETED"))
+            executeInTransaction(session ->
+                bookDao.deleteWithSession(id, session)
+                    .flatMap(deleted -> {
+                      if (!deleted) {
+                        return Mono.error(new RuntimeException("Failed to delete book " + id));
+                      }
+                      return sendBookEventWithTransaction(existing, "BOOK_DELETED", session);
+                    })
+            )
+        );
+  }
+
+  private <T> Mono<T> executeInTransaction(TransactionalOperation<T> operation) {
+    return bookDao.startSession()
+        .flatMap(session -> {
+          // Start transaction
+          session.startTransaction();
+
+          return operation.execute(session)
+              .flatMap(result ->
+                  // Commit transaction if successful
+                  Mono.from(session.commitTransaction())
+                      .thenReturn(result)
+              )
+              .onErrorResume(throwable ->
+                  // Rollback transaction on error
+                  Mono.from(session.abortTransaction())
+                      .then(Mono.error(new RuntimeException("Transaction failed: " + throwable.getMessage(), throwable)))
+              )
+              .doFinally(signal -> {
+                // Always close the session
+                session.close();
+              });
+        });
+  }
+
+  private Mono<Void> sendBookEventWithTransaction(Book book, String eventType, ClientSession session) {
+    BookEvent event = buildBookEvent(book, eventType);
+
+    return kafkaSender.send(Mono.just(
+            SenderRecord.create(
+                "book-topic",
+                null,
+                null,
+                event.getPayload().getBookId().toString(),
+                event,
+                null
+            )
+        ))
+        .timeout(Duration.ofSeconds(10))
+        .onErrorResume(ex ->
+            // This will trigger transaction rollback
+            Mono.error(new RuntimeException("Kafka send failed: " + ex.getMessage(), ex))
         )
         .then();
   }
@@ -97,24 +155,14 @@ public class BookService {
     payload.setStatus(book.getStatus() != null ? book.getStatus().toString() : null);
     payload.setTimestamp(Instant.now());
 
-     event.setPayload(payload);
+    event.setPayload(payload);
 
-     return event;
+    return event;
   }
 
-  private Mono<Void> sendBookEvent(Book book, String eventType) {
-    BookEvent event = buildBookEvent(book, eventType);
-    return kafkaSender.send(Mono.just(
-            SenderRecord.create(
-                "book-topic",
-                null,
-                null,
-                event.getPayload().getBookId().toString(),
-                event,
-                null
-            )
-        ))
-        .then();
+  // Functional interface for transactional operations
+  @FunctionalInterface
+  private interface TransactionalOperation<T> {
+    Mono<T> execute(ClientSession session);
   }
-
 }

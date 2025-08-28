@@ -21,6 +21,9 @@ public class KafkaConfig {
     props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
     props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
     props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, BookEventSerializer.class);
+    props.put(ProducerConfig.RETRIES_CONFIG, 3);
+    props.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 1000);
+    props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 15000);
 
     SenderOptions<String, BookEvent> senderOptions = SenderOptions.create(props);
     return KafkaSender.create(senderOptions);
